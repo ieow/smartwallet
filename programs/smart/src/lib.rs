@@ -8,9 +8,9 @@ declare_id!("BLYzT5n6WtwteMkNUQEtcRKyCVQys8Y3wbG1BESQannT");
 use instructions::validation::{validate, SignatureParams, ValidatorError};
 #[program]
 pub mod smart {
-    use anchor_lang::solana_program::{
-            instruction::Instruction,  program::invoke_signed, system_instruction
-        };
+    use anchor_lang::{solana_program::{
+            instruction::Instruction,  program::invoke_signed, 
+        }};
 
     use super::*;
 
@@ -23,29 +23,34 @@ pub mod smart {
         ctx: Context<CreateWalletAccount>,
         signature: SignatureParams,
         data: [u8; 32],
+        pda: Pubkey
     ) -> Result<()> {
         msg!("Greetings from: {:?}", ctx.program_id);
         let wallet_account = &mut ctx.accounts.wallet_account;
 
         validate(&data, &signature)?;
-
+        msg!("authority : {:?}" , wallet_account.authority);
+        msg!("wallet key: {:?}", wallet_account.key()); 
+        
+        
         // Create PDA
-        // let (pda, bump) = Pubkey::find_program_address(&[b"seed", &signer_pubkey], ctx.program_id);
+        // let (pda, _bump) = Pubkey::find_program_address(&[ &signature.signer_pubkey_x], ctx.program_id);
+        // msg!("pda: {:?}", pda);
 
-        // if pda != wallet_account.key() {
-        //     msg!("Invalid PDA");
-        //     return Err(ValidatorError::WalletMismatched.into());
-        // }
+        if pda != wallet_account.key() {
+            msg!("Invalid PDA");
+            return Err(ValidatorError::WalletMismatched.into());
+        }
 
-        // Calculate required space for the account
+        // // Calculate required space for the account
         // let space = DISCRIMINATOR +  WalletType::INIT_SPACE; // Size of WalletType data
 
-        // // Calculate rent-exempt balance
+        // // // Calculate rent-exempt balance
         // let rent = Rent::get()?;
         // let lamports = rent.minimum_balance(space);
 
         // let payer = &ctx.accounts.feepayer;
-        // Create account
+        // // Create account
         // let ix = system_instruction::create_account(
         //     &payer.key(),
         //     &pda,
@@ -63,11 +68,12 @@ pub mod smart {
         //         // ctx.accounts.system_program.to_account_info(),
         //     ],
         //     &[
-        //         &[ b"seed", signer_pubkey.as_ref(), &[bump]],
+        //         &[ &signature.signer_pubkey_x, &[bump]],
         //     ],
         // )?;
 
         wallet_account.authority = signature.signer_pubkey;
+        msg!("authority : {:?}" , wallet_account.authority);
 
         Ok(())
     }
@@ -81,29 +87,52 @@ pub mod smart {
         }
 
         let vec_data = data.try_to_vec()?;
-        // const 
         validate(&vec_data, &signature)?;  
 
 
-        let ix = system_instruction::transfer(
-            &wallet_account.key(),
-            &data.to,
-            data.amount
-        );
+        // Ensure that the PDA has enough lamports
+        let pda_lamports = wallet_account.get_lamports();
+        if pda_lamports < data.amount {
+            return Err(ProgramError::InsufficientFunds.into());
+        }
 
-        let seeds = &[
-            wallet_account.authority.as_ref(),
-            &[ctx.bumps.wallet_account],
-        ];
+        let recipient = &mut ctx.accounts.to;
+        // Transfer lamports from the PDA to the recipient
+        wallet_account.sub_lamports(data.amount)?;
+        recipient.add_lamports(data.amount)?;
 
-        invoke_signed(
-            &ix,
-            &[
-                wallet_account.to_account_info(),
-                // ctx.accounts.to.to_account_info(),
-            ],
-            &[seeds],
-        )?;
+        // let ix = system_instruction::transfer(
+        //     &wallet_account.key(),
+        //     &data.to,
+        //     data.amount
+        // );
+
+        // let seeds = &[
+        //     signature.signer_pubkey_x.as_ref(),
+        //     &[ctx.bumps.wallet_account],
+        // ];
+        // msg!("seeds: {:?}", seeds);
+        // msg!("wallet_account: {:?}", wallet_account.key());
+
+        // let pdabump = Pubkey::create_program_address(seeds, ctx.program_id).unwrap();
+        // msg!("pdabump: {:?}", pdabump);
+
+        // let (pda, _bump) = Pubkey::find_program_address(&[ &signature.signer_pubkey_x], ctx.program_id);
+        // msg!("pda: {:?}", pda);
+
+        // msg!("bump : {:?} , ctx bump : {:?}", _bump, ctx.bumps.wallet_account);
+        // msg!("data.to : {:?} , ctx account.to : {:?}", data.to, ctx.accounts.to.key());
+
+        // let wallet_to = &mut ctx.accounts.to;
+        // invoke_signed(
+        //     &ix,
+        //     &[
+        //         wallet_account.to_account_info(),
+        //         wallet_to.to_account_info(),
+        //         ctx.accounts.system_program.to_account_info(),
+        //     ],
+        //     &[seeds],
+        // )?;
 
         Ok(())
     }
@@ -155,7 +184,7 @@ pub mod smart {
 pub struct Initialize {}
 
 #[derive(Accounts)]
-#[instruction( data : [u8; 32] , signature : SignatureParams )]
+#[instruction( signature: SignatureParams)]
 pub struct CreateWalletAccount<'info> {
     #[account(
         init,
@@ -173,7 +202,7 @@ pub struct CreateWalletAccount<'info> {
 
 
 #[derive(Accounts)]
-#[instruction( signature : SignatureParams, instruction_data : Vec<u8>)]
+#[instruction( signature: SignatureParams)]
 pub struct AccountExecuteParams<'info> {
     #[account(
         seeds = [ signature.signer_pubkey_x.as_ref()],
@@ -184,7 +213,7 @@ pub struct AccountExecuteParams<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction( signature : SignatureParams, data : Vec<u8>)]
+#[instruction( signature: SignatureParams)]
 
 pub struct SendSolAccount<'info> {
     #[account(
@@ -193,7 +222,11 @@ pub struct SendSolAccount<'info> {
         bump,
     )]
     pub wallet_account: Account<'info, WalletType>,
-    // pub to: AccountInfo<'info>,
+
+    #[account(mut)]
+    /// CHECK: This is not dangerous because we don't read or write data from this account
+    pub to: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 
@@ -212,21 +245,3 @@ pub struct SendSolParams {
     to : Pubkey,
     amount : u64
 }
-
-// #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
-// pub struct SignatureParams {
-//     recovery_id: u8,
-//     r: [u8; 32],
-//     s: [u8; 32],
-//     signer_pubkey: [u8; 64],
-// }
-
-// #[error_code]
-// enum ValidatorError {
-//     #[msg("Wallet alread exist")]
-//     WalletExisted,
-//     #[msg("Wallet mismatched")]
-//     WalletMismatched,
-//     #[msg("Invalid Signature")]
-//     InvalidSignature,
-// }
