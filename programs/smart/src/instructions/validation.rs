@@ -1,26 +1,22 @@
-use anchor_lang::{prelude::*};
+use anchor_lang::prelude::*;
 
-use anchor_lang::{
-    solana_program::{keccak::hash, secp256k1_recover::secp256k1_recover}, Result
+use anchor_lang::
+    solana_program::{keccak::hash, secp256k1_recover::secp256k1_recover
 };
 
 pub fn validate(
     data: &[u8],
     signature : &SignatureParams
-) -> Result<()> {
+) -> bool {
     let hash = hash(data);
     match secp256k1_recover(&hash.to_bytes(), signature.recovery_id, &signature.compact_signature) {
         Ok(recovered_pubkey) => {
-            if recovered_pubkey.to_bytes() != signature.signer_pubkey.clone() {
-                return Err(ValidatorError::InvalidSignature.into());
-            }
+            recovered_pubkey.to_bytes() == signature.signer_pubkey.clone() 
         }
         Err(_) => {
-            return Err(ValidatorError::InvalidSignature.into());
+            false
         }
-    };
-
-    Ok(())
+    }
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]

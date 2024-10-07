@@ -7,6 +7,7 @@ import { BN } from "bn.js";
 import { BorshTypesCoder } from "@coral-xyz/anchor/dist/cjs/coder/borsh/types";
 
 
+
 describe("smart", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
@@ -60,8 +61,10 @@ describe("smart", () => {
         },
         Array.from(signerPubKeyX),
         account[0]
-      )
-      .rpc();
+      ).rpc();
+      // .rpc({
+      //   commitment: 'finalized',
+      // });
     console.log("Your transaction signature", tx);
 
     // wait for confirmation
@@ -127,21 +130,123 @@ describe("smart", () => {
     };
 
     try {
-    // execute send sol transaction for pda
-    const tx2 = await program.methods
-      .sendSol(
-        sendSolSignatureParams,
-        sendSolParams,
-      ).accounts(
-        {
-          to: keypair.publicKey,
-        }
-      )
-      .rpc();
+      // execute send sol transaction for pda
+      const method2 = await program.methods
+        .sendSol(
+          sendSolSignatureParams,
+          sendSolParams,
+        ).accounts(
+          {
+            to: keypair.publicKey,
+          }
+        )
+      
+      const inst2 = await  method2.instruction();
+
+      console.log("inst2", inst2);
+
+      const tx2 = await method2.rpc();
       console.log("Your transaction signature", tx2);
+
+      console.log(inst2.data);
+
+      console.log("====================== ===================");
+      // try sendSolSigned
+      const method3 = await program.methods.sendSolSigned({
+        // walletAccount: account[0],
+        to: keypair.publicKey,
+        amount: new BN(0.1 * anchor.web3.LAMPORTS_PER_SOL),
+      })
+      .accounts({
+        walletAccount: account[0],
+        to: keypair.publicKey,
+      })
+
+      const inst3 = await method3.instruction();
+
+
+      const tx3 = await method3.rpc();
+
+      // wait for confirmation
+      const confirm3 = await program.provider.connection.confirmTransaction({
+        signature : tx3,
+        blockhash: blockhash.blockhash,
+        lastValidBlockHeight
+      }, 'confirmed');
+      console.log("confirm3", confirm3);
+
+      // get transaction detail
+      const txDetails3 = await program.provider.connection.getTransaction(tx3, {
+        commitment: 'confirmed',
+      })
+      console.log(txDetails3);
+
+
+
+
+      console.log("====================== ===================");
+
+
+      const convertInst2 = {
+        data: inst2.data,
+        programId: inst2.programId
+      }
+
+      const convertInst3 = {
+        data: inst3.data,
+        programId: inst3.programId
+      }
+      const executeArgs = typeCoder.encode("executeInstructionParams", convertInst2)
+      
+      const executeArgsHash = keccak_256(executeArgs);
+      const signature = secp256k1.sign(executeArgsHash, signer, );
+
+      
+      const executeSignature = {
+        recoveryId: signature.recovery, 
+        compactSignature: Array.from(signature.toCompactRawBytes()),
+        signerPubkey: Array.from(signerPubkey),
+        signerPubkeyX: Array.from(signerPubKeyX),        
+      }
+      // // invoke execute instruction with inst2
+      const method4 = program.methods
+        .execute(
+          executeSignature,
+          convertInst2
+        ).remainingAccounts(
+          [...inst2.keys, {
+            pubkey: program.programId,
+            isSigner: false,
+            isWritable: false
+          }
+          ]
+        )
+         
+      const tx4 = await method4.rpc();
+
+
+    
+      console.log("Your transaction signature", tx4);
+
+      // // wait for confirmation
+      const confirm4 = await program.provider.connection.confirmTransaction({
+        signature : tx4,
+        blockhash: blockhash.blockhash,
+        lastValidBlockHeight
+      }, 'confirmed');
+      console.log("confirm3", confirm4);
+
+      // // get transaction details
+      const txDetails4 = await program.provider.connection.getTransaction(tx4, {
+        commitment: 'confirmed',
+      })
+      console.log(txDetails4);
+      
     } catch (error) {
+      console.log("error", error);
       console.log("error", error.getLogs());
       throw error
     }
+
   });
 });

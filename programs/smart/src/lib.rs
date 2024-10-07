@@ -1,16 +1,19 @@
-use anchor_lang::{prelude::*};
+use anchor_lang::prelude::*;
 // use anchor_lang::solana_program::program::invoke;
 
 pub mod instructions;
 
 declare_id!("BLYzT5n6WtwteMkNUQEtcRKyCVQys8Y3wbG1BESQannT");
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use instructions::validation::{validate, SignatureParams, ValidatorError};
+
 #[program]
 pub mod smart {
-    use anchor_lang::{solana_program::{
+
+    use anchor_lang::solana_program::{
             instruction::Instruction,  program::invoke_signed, 
-        }};
+        };
 
     use super::*;
 
@@ -19,6 +22,7 @@ pub mod smart {
         Ok(())
     }
 
+    // pda created via the Accounts struct instead 
     pub fn create_wallet(
         ctx: Context<CreateWalletAccount>,
         signature: SignatureParams,
@@ -28,49 +32,22 @@ pub mod smart {
         msg!("Greetings from: {:?}", ctx.program_id);
         let wallet_account = &mut ctx.accounts.wallet_account;
 
-        validate(&data, &signature)?;
+        // should we validate the signer pubkey with the signer pubkey_x so that only valid pubkey_x can be use as authority?
+        // should we split the authority from the seed used to generate pda?
+
+        // validate(&data, &signature)?;
+        require!(validate(&data, &signature), 
+            ValidatorError::InvalidSignature
+        );
+        
         msg!("authority : {:?}" , wallet_account.authority);
         msg!("wallet key: {:?}", wallet_account.key()); 
-        
-        
-        // Create PDA
-        // let (pda, _bump) = Pubkey::find_program_address(&[ &signature.signer_pubkey_x], ctx.program_id);
-        // msg!("pda: {:?}", pda);
 
         if pda != wallet_account.key() {
             msg!("Invalid PDA");
             return Err(ValidatorError::WalletMismatched.into());
         }
 
-        // // Calculate required space for the account
-        // let space = DISCRIMINATOR +  WalletType::INIT_SPACE; // Size of WalletType data
-
-        // // // Calculate rent-exempt balance
-        // let rent = Rent::get()?;
-        // let lamports = rent.minimum_balance(space);
-
-        // let payer = &ctx.accounts.feepayer;
-        // // Create account
-        // let ix = system_instruction::create_account(
-        //     &payer.key(),
-        //     &pda,
-        //     lamports,
-        //     space as u64,
-        //     ctx.program_id,
-        // );
-
-        // invoke_signed(
-        //     &ix,
-        //     &[
-        //         payer.to_account_info(),
-        //         wallet_account.to_account_info()
-        //         // ctx.accounts.wallet.to_account_info(),
-        //         // ctx.accounts.system_program.to_account_info(),
-        //     ],
-        //     &[
-        //         &[ &signature.signer_pubkey_x, &[bump]],
-        //     ],
-        // )?;
 
         wallet_account.authority = signature.signer_pubkey;
         msg!("authority : {:?}" , wallet_account.authority);
@@ -80,6 +57,8 @@ pub mod smart {
 
 
     pub fn send_sol(ctx: Context<SendSolAccount>, signature: SignatureParams, data: SendSolParams) -> Result<()> {
+
+        msg!("send sol instruction on behalf of PDA");
         let wallet_account = &mut ctx.accounts.wallet_account;
 
         if wallet_account.authority != signature.signer_pubkey {
@@ -87,8 +66,10 @@ pub mod smart {
         }
 
         let vec_data = data.try_to_vec()?;
-        validate(&vec_data, &signature)?;  
 
+        require!(validate(&vec_data, &signature), 
+            ValidatorError::InvalidSignature
+        );
 
         // Ensure that the PDA has enough lamports
         let pda_lamports = wallet_account.get_lamports();
@@ -98,78 +79,55 @@ pub mod smart {
 
         let recipient = &mut ctx.accounts.to;
         // Transfer lamports from the PDA to the recipient
+        // system_instruction.transfer do not works as system program do not own pda and pda has `data`.
         wallet_account.sub_lamports(data.amount)?;
         recipient.add_lamports(data.amount)?;
-
-        // let ix = system_instruction::transfer(
-        //     &wallet_account.key(),
-        //     &data.to,
-        //     data.amount
-        // );
-
-        // let seeds = &[
-        //     signature.signer_pubkey_x.as_ref(),
-        //     &[ctx.bumps.wallet_account],
-        // ];
-        // msg!("seeds: {:?}", seeds);
-        // msg!("wallet_account: {:?}", wallet_account.key());
-
-        // let pdabump = Pubkey::create_program_address(seeds, ctx.program_id).unwrap();
-        // msg!("pdabump: {:?}", pdabump);
-
-        // let (pda, _bump) = Pubkey::find_program_address(&[ &signature.signer_pubkey_x], ctx.program_id);
-        // msg!("pda: {:?}", pda);
-
-        // msg!("bump : {:?} , ctx bump : {:?}", _bump, ctx.bumps.wallet_account);
-        // msg!("data.to : {:?} , ctx account.to : {:?}", data.to, ctx.accounts.to.key());
-
-        // let wallet_to = &mut ctx.accounts.to;
-        // invoke_signed(
-        //     &ix,
-        //     &[
-        //         wallet_account.to_account_info(),
-        //         wallet_to.to_account_info(),
-        //         ctx.accounts.system_program.to_account_info(),
-        //     ],
-        //     &[seeds],
-        // )?;
 
         Ok(())
     }
 
     pub fn execute(ctx: Context<AccountExecuteParams>, 
         signature: SignatureParams,
-        instruction_data: Vec<u8>,
+        instruction_data: ExecuteInstructionParams,
     ) -> Result<()> {
         msg!("Executing instruction on behalf of PDA");
         let wallet_account =  &ctx.accounts.wallet_account;
         
-        if signature.signer_pubkey.clone() != ctx.accounts.wallet_account.authority {
-            return Err(ValidatorError::WalletMismatched.into());
-        }
-        validate( &instruction_data, &signature)?;
-        
+        require!(signature.signer_pubkey.clone() == wallet_account.authority, 
+            ValidatorError::WalletMismatched
+        );
+        // if signature.signer_pubkey.clone() != ctx.accounts.wallet_account.authority {
+        //     return Err(ValidatorError::WalletMismatched.into());
+        // }
 
-        // Instruction::try_from(&instruction_data)?;
-        // Create the instruction to be executed
-        let instruction = Instruction {
-            program_id: ctx.accounts.target_program.key(),
-            accounts: ctx.remaining_accounts.iter().map(|a| AccountMeta {
-                pubkey: a.key(),
-                is_signer: a.is_signer,
-                is_writable: a.is_writable,
+        require!(validate(&instruction_data.try_to_vec()?, &signature), 
+            ValidatorError::InvalidSignature
+        );
+
+
+        msg!("valided execute instruction on behalf of PDA");
+        msg!("Instruction data {:?}", instruction_data);
+
+        let test_inst = Instruction{
+            program_id: instruction_data.program_id,
+            accounts: ctx.remaining_accounts.iter().map(|x| {
+                if x.is_writable {
+                    AccountMeta::new(x.key(), x.is_signer)
+                } else {
+                    AccountMeta::new_readonly(x.key(), x.is_signer)
+                }
             }).collect(),
-            data: instruction_data,
+            data: instruction_data.data
         };
 
+        let seed = signature.signer_pubkey_x;
         // Execute the instruction on behalf of the PDA
         invoke_signed(
-            &instruction,
+            &test_inst,
             ctx.remaining_accounts,
-
             &[
                 &[
-                    wallet_account.authority.as_ref(),
+                    &seed,
                     &[ctx.bumps.wallet_account],
                 ],
             ],
@@ -178,6 +136,31 @@ pub mod smart {
         msg!("Instruction executed successfully");
         Ok(())
     }
+
+
+
+    // test transfer 
+    pub fn send_sol_signed(ctx: Context<SendSolAccountSigned>, data: SendSolParams) -> Result<()> {
+
+        msg!("send sol instruction on behalf of PDA");
+        let wallet_account = &mut ctx.accounts.wallet_account;
+
+        // Ensure that the PDA has enough lamports
+        let pda_lamports = wallet_account.get_lamports();
+        if pda_lamports < data.amount {
+            return Err(ProgramError::InsufficientFunds.into());
+        }
+
+        let recipient = &mut ctx.accounts.to;
+        // Transfer lamports from the PDA to the recipient
+        // system_instruction.transfer do not works as system program do not own pda and pda has `data`.
+        wallet_account.sub_lamports(data.amount)?;
+        recipient.add_lamports(data.amount)?;
+
+        Ok(())
+    }
+
+
 }
 
 #[derive(Accounts)]
@@ -209,7 +192,8 @@ pub struct AccountExecuteParams<'info> {
         bump,
     )]
     pub wallet_account: Account<'info, WalletType>,
-    pub target_program: Program<'info, System>,
+    // pub target_program: Program<'info, System>,
+    // pub target_accounts: Vec<AccountInfo<'info>>,
 }
 
 #[derive(Accounts)]
@@ -244,4 +228,22 @@ const DISCRIMINATOR: usize = 8;
 pub struct SendSolParams {
     to : Pubkey,
     amount : u64
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
+pub struct ExecuteInstructionParams {
+    data : Vec<u8>,
+    program_id : Pubkey
+}
+
+
+
+#[derive(Accounts)]
+pub struct SendSolAccountSigned<'info> {
+    #[account(mut)]
+    pub wallet_account: Account<'info, WalletType>,
+
+    #[account(mut)]
+    /// CHECK: This is not dangerous because we don't read or write data from this account
+    pub to: AccountInfo<'info>,
 }
