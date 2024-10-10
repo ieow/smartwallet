@@ -32,14 +32,14 @@ export function createWallet ( program: Program<Smart>, signer: Uint8Array, wall
 
   const method = program.methods.createWallet(
     signature,
-    Array.from(walletSeed),
-    account[0]
+    Array.from(walletSeed), //seed
+    account[0] // pda pubkey
   )
   
   return method
 }
 
-export async function executeInstruction ( 
+export function executeInstruction ( 
     instruction: anchor.web3.TransactionInstruction, 
     signer: Uint8Array,
     program: Program<Smart>
@@ -47,6 +47,7 @@ export async function executeInstruction (
 
     const instructionData = {
       data: instruction.data,
+      keys: instruction.keys,
       programId: instruction.programId
     }
 
@@ -74,6 +75,57 @@ export async function executeInstruction (
     return method4
 
   }
+
+
+export async function executeMultipleInstruction ( 
+  instruction: anchor.web3.TransactionInstruction[], 
+  signer: Uint8Array,
+  program: Program<Smart>
+) {
+
+  const instructionData = instruction.map(inst => {
+    
+    const instData = {
+      data: inst.data,
+      keys: inst.keys,
+      programId: inst.programId
+    }
+    return instData
+  })
+
+  const params = {
+    list : instructionData
+  }
+
+  program.idl.types
+
+  const executeArgs = program.coder.types.encode("vecExecuteMultipleInstructionParams", params);
+  console.log(executeArgs);
+
+  const executeArgsHash = keccak_256(executeArgs);
+
+  const executeSignature = secp256k1Sign(signer, executeArgsHash);
+
+  // invoke execute instruction with inst2
+  const method4 = program.methods
+    .executeMultipleInstruction(
+      executeSignature,
+      params
+    ).remainingAccounts(
+      [ 
+        ...instruction.reduce((acc, inst) => [...acc, ...inst.keys], []), 
+        {
+          pubkey: program.programId,
+          isSigner: false,
+          isWritable: false
+        }
+      ]
+    )
+    
+  return method4
+
+}
+
 
 export function transferSol ( program: Program<Smart>, signer: Uint8Array, to: anchor.web3.PublicKey, amount: number ) {
     console.log("from pubkey", anchor.getProvider().publicKey);

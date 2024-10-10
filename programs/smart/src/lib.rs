@@ -46,6 +46,15 @@ pub mod smart {
     ) -> Result<()> {
         instructions::execute::handler(ctx, signature, instruction_data)
     }
+
+    pub fn execute_multiple_instruction(
+        ctx: Context<ExecuteMultipleInstructionAccounts>,
+        signature: SignatureParams,
+        params: VecExecuteMultipleInstructionParams,
+    ) -> Result<()> {
+        instructions::execute_multiple_instruction::handler(ctx, signature, params)
+    }
+
 }
 
 #[derive(Accounts)]

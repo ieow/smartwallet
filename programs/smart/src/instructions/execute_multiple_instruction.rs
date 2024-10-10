@@ -20,19 +20,43 @@ pub struct ExecuteMultipleInstructionAccounts<'info> {
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
+pub struct MyAccountMeta {
+    pub pubkey: Pubkey,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
+
+impl From<MyAccountMeta> for AccountMeta {
+    fn from(x: MyAccountMeta) -> Self {
+        AccountMeta {
+            pubkey: x.pubkey,
+            is_signer: x.is_signer,
+            is_writable: x.is_writable,
+        }
+    }
+}
+
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct ExecuteMultipleInstructionParams {
     data: Vec<u8>,
-    accounts: Vec<Pubkey>,
+    keys: Vec<MyAccountMeta>,
     program_id: Pubkey,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
+pub struct VecExecuteMultipleInstructionParams {
+    list : Vec<ExecuteMultipleInstructionParams>,
 }
 
 pub fn handler(
     ctx: Context<ExecuteMultipleInstructionAccounts>,
     signature: SignatureParams,
-    instructions_list: Vec<ExecuteMultipleInstructionParams>,
+    params : VecExecuteMultipleInstructionParams,
 ) -> Result<()> {
     msg!("Executing instruction on behalf of PDA");
     let wallet_account = &ctx.accounts.wallet_account;
+    let instructions_list = params.list;
 
     require!(
         signature.signer_pubkey.clone() == wallet_account.authority,
@@ -43,24 +67,15 @@ pub fn handler(
         validate(&instructions_list.try_to_vec()?, &signature),
         ValidatorError::InvalidSignature
     );
-    msg!("valided execute instruction on behalf of PDA");
-    msg!("Instruction data {:?}", instructions_list);
+    msg!("valided execute multipl instruction on behalf of PDA");
+    // msg!("Instruction data {:?}", instructions_list);
 
     let result = instructions_list.iter().try_for_each(|inst| {
         let compiled_instruction = Instruction {
             program_id: inst.program_id,
-            accounts: ctx
-                .remaining_accounts
+            accounts: inst.keys
                 .iter()
-                .filter(|x| inst.accounts.contains(x.key))
-                .map(|x| {
-                    if x.is_writable {
-                        AccountMeta::new(x.key(), x.is_signer)
-                    } else {
-                        AccountMeta::new_readonly(x.key(), x.is_signer)
-                    }
-                })
-                .collect(),
+                .map(|x| AccountMeta::from(x.clone())).collect(),
             data: inst.data.clone(),
         };
 
