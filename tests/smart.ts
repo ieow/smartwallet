@@ -269,6 +269,8 @@ describe("smart", () => {
         key.isSigner = false
       }
     })
+    const tk_program = new anchor.web3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+    pda_inst.keys.push({pubkey: tk_program, isSigner: false, isWritable: false})
 
     console.log("keys", pda_inst.keys)
     const setComputeUnitLimit = anchor.web3.ComputeBudgetProgram.setComputeUnitLimit( {units : 1_400_000} )
@@ -280,6 +282,7 @@ describe("smart", () => {
       instructions: [setComputeUnitLimit, pda_inst]
     });
 
+    
     const vtx2 = new anchor.web3.VersionedTransaction(pdaTransactionMessage.compileToV0Message());
     vtx2.sign([mintAuthority]);
 
@@ -293,7 +296,15 @@ describe("smart", () => {
         blockhash: blockhash.blockhash,
         lastValidBlockHeight : blockhash.lastValidBlockHeight
       }, 'confirmed');
+
       console.log("confirm2", confirm2);
+
+      // get transaction details
+      const txDetails2 = await program.provider.connection.getTransaction(vtx_hash2, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 1
+      })
+      console.log(txDetails2);
     }catch (error) {
       console.log("error", error);
       console.log("error", error.getLogs());

@@ -86,12 +86,6 @@ pub fn handler(
             &[ctx.bumps.wallet_account],
         ];
 
-
-        // ctx.accounts.wallet_account
-        let wallet_info =  & ctx.accounts.wallet_account.to_account_info();
-        // wallet_info.is_signer = true;
-        msg!("wallet_info {:?}", wallet_info.key);
-
         ctx.remaining_accounts.iter().for_each( |x| {
             msg!("Executing instruction remaining_accounts {:?} is_signer {:?}", x.key() , x.is_signer);
         }); 
@@ -99,18 +93,12 @@ pub fn handler(
         ctx.accounts.to_account_infos().iter().for_each( |x| {
             msg!("Executing instruction accounts {:?} is_signer {:?}", x.key() , x.is_signer);
         });
-        
-        // let m1 = ctx.remaining_accounts.to_vec();
-        // let m2 = m1.last().unwrap().(); //.last().unwrap().clone();
-        // let mut remaining_accounts: Vec<AccountInfo> = ctx.remaining_accounts.iter().map(|acc| acc.to_account_info().to_owned()).collect();
-        // remaining_accounts.push(wallet_info.clone());
-        let last = ctx.remaining_accounts.clone().last().unwrap().clone();
-        // Invoke the instruction on behalf of the PDA 
-        // Execute the instruction on behalf of the PDA
-        invoke_signed(&compiled_instruction, &[wallet_info.clone(), last ] , &[&seed])?;
+
+        invoke_signed(&compiled_instruction,  &ctx.remaining_accounts, &[&seed])?;
     } else {
         // Execute the instruction on behalf of the PDA
-        // invoke(&compiled_instruction, ctx.accounts)?;
+        // TODO: check if need to add back pda account
+        invoke(&compiled_instruction, ctx.remaining_accounts)?;
     }
 
     msg!("Instruction executed successfully");
