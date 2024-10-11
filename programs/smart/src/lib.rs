@@ -23,7 +23,7 @@ pub mod smart {
 
     // pda created via the Accounts struct instead
     pub fn create_wallet(
-        ctx: Context<CreateWalletAccount>,
+        ctx: Context<CreateWalletAccounts>,
         signature: SignatureParams,
         data: [u8; 32],
         pda: Pubkey,
@@ -32,19 +32,27 @@ pub mod smart {
     }
 
     pub fn transfer(
-        ctx: Context<TransferSolAccount>,
+        ctx: Context<TransferSolAccounts>,
         signature: SignatureParams,
         data: TransferSolParams,
     ) -> Result<()> {
         instructions::transfer::handler(ctx, signature, data)
     }
 
-    pub fn execute(
-        ctx: Context<AccountExecuteParams>,
+    pub fn execute_instruction(
+        ctx: Context<ExecuteInstructionAccounts>,
         signature: SignatureParams,
         instruction_data: ExecuteInstructionParams,
     ) -> Result<()> {
-        instructions::execute::handler(ctx, signature, instruction_data)
+        instructions::execute_instruction::handler(ctx, signature, instruction_data)
+    }
+
+    pub fn execute_multiple_instruction(
+        ctx: Context<ExecuteInstructionAccounts>,
+        signature: SignatureParams,
+        params: VecExecuteMultipleInstructionParams,
+    ) -> Result<()> {
+        instructions::execute_multiple_instruction::handler(ctx, signature, params)
     }
 }
 
