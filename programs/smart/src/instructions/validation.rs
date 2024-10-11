@@ -1,9 +1,10 @@
 use anchor_lang::prelude::*;
 
 use anchor_lang::solana_program::{
+    keccak::hash,
+    secp256k1_recover::secp256k1_recover,
     sysvar::{clock::Clock, Sysvar},
-    keccak::hash, secp256k1_recover::secp256k1_recover};
-
+};
 
 #[cfg(feature = "simulation")]
 pub fn is_simulation() -> bool {
@@ -15,7 +16,6 @@ pub fn is_simulation() -> bool {
     false
 }
 
-    
 pub fn validate(data: &[u8], signature: &SignatureParams) -> bool {
     let hash = hash(data);
     match secp256k1_recover(
@@ -26,9 +26,9 @@ pub fn validate(data: &[u8], signature: &SignatureParams) -> bool {
         Ok(recovered_pubkey) => {
             if is_simulation() {
                 return true;
-            } 
+            }
             recovered_pubkey.to_bytes() == signature.signer_pubkey.clone()
-        },
+        }
         Err(_) => is_simulation(),
     }
 }

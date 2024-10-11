@@ -7,7 +7,7 @@ use crate::{
 
 // pda created via the Accounts struct instead
 pub fn handler(
-    ctx: Context<CreateWalletAccount>,
+    ctx: Context<CreateWalletAccounts>,
     signature: SignatureParams,
     data: [u8; 32],
     pda: Pubkey,
@@ -39,7 +39,7 @@ pub fn handler(
 
 #[derive(Accounts)]
 #[instruction( signature: SignatureParams)]
-pub struct CreateWalletAccount<'info> {
+pub struct CreateWalletAccounts<'info> {
     #[account(
         init,
         space = DISCRIMINATOR + WalletType::INIT_SPACE,

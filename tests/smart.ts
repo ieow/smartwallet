@@ -5,7 +5,7 @@ import { secp256k1 } from "@noble/curves/secp256k1";
 import { keccak_256 } from '@noble/hashes/sha3';
 import { BN } from "bn.js";
 import { BorshTypesCoder } from "@coral-xyz/anchor/dist/cjs/coder/borsh/types";
-import { createWallet, executeInstruction, executeMultipleInstruction, transferSol } from "./helpers";
+import { createWallet, executeInstruction, executeMultipleInstruction, transferSol, waitForConfirmation } from "./helpers";
 import { createAssociatedTokenAccount, createAssociatedTokenAccountInstruction, createMint, createTransferCheckedInstruction, getAssociatedTokenAddress, mintTo, TOKEN_2022_PROGRAM_ID, transferChecked } from '@solana/spl-token';
  
 
@@ -14,11 +14,6 @@ describe("smart", () => {
   anchor.setProvider(anchor.AnchorProvider.env());
 
   const program = anchor.workspace.Smart as Program<Smart>;
-
-  const payer = anchor.getProvider();
-  
-  const mintAuthority = anchor.web3.Keypair.generate();
-  const freezeAuthority = anchor.web3.Keypair.generate();
 
   it("Is initialized!", async () => {
     // Add your test here.
@@ -38,106 +33,53 @@ describe("smart", () => {
     const account = anchor.web3.PublicKey.findProgramAddressSync([ pdaPrefixSeed, walletSeed ], program.programId);
 
     const blockhash = await program.provider.connection.getLatestBlockhash();
-    console.log("blockhash", blockhash);
-
-
-    // const tx = await program.methods
-    //   .createWallet(
-    //     {
-    //       recoveryId: recoveryId,
-    //       compactSignature: Array.from(signatureRS),
-    //       signerPubkey: Array.from(signerPubkey),
-    //       walletSeed: Array.from(walletSeed),
-    //     },
-    //     Array.from(walletSeed),
-    //     account[0]
-    //   ).rpc();
+ 
+    // create pda
     const method = createWallet(program, signer, walletSeed);
     const tx = await method.rpc();
-    console.log("Your transaction signature", tx);
 
     // wait for confirmation
-    const confrim = await program.provider.connection.confirmTransaction({
-      signature : tx,
-      blockhash: blockhash.blockhash,
-      lastValidBlockHeight : blockhash.lastValidBlockHeight
-    }, 'confirmed');
+    await waitForConfirmation({ connection: program.provider.connection, tx: tx, blockhash: blockhash, getDetails: true });
 
-    const txDetails = await program.provider.connection.getTransaction(tx, {
-      commitment: 'confirmed',
-    })
-    console.log(txDetails);
+    console.log("===================== Transfer Sol on behalf of PDA ======================");
 
-    console.log("====================== ======================");
-
-    // airdrop to account
-    const tx1 = await program.provider.connection.requestAirdrop(account[0], 1 * anchor.web3.LAMPORTS_PER_SOL);
-    const confrim1 = await program.provider.connection.confirmTransaction({
-      signature : tx1,
-      blockhash: blockhash.blockhash,
-      lastValidBlockHeight : blockhash.lastValidBlockHeight
-    }, 'confirmed'); 
+    // airdrop to pda account
+    const airdropTxSig = await program.provider.connection.requestAirdrop(account[0], 1 * anchor.web3.LAMPORTS_PER_SOL);
+    await waitForConfirmation({ connection: program.provider.connection, tx: airdropTxSig, blockhash: blockhash, getDetails: false });
     
-    // send sol
+    // send sol on behalf of pda
     let keypair = anchor.web3.Keypair.generate();
     const method2 = transferSol(program, signer, keypair.publicKey, 0.1);
-    try {
-      // execute send sol transaction for pda
-      const inst2 = await  method2.instruction();
-      const tx2 = await method2.rpc();
 
-      console.log("====================== ===================");
-      
-      const method4 = executeInstruction(inst2, signer, program);
-      console.log((await method4.instruction()).data )
+    // execute send sol transaction for pda
+    const inst2 = await  method2.instruction();
+    const tx2 = await method2.rpc();
 
-      const txSignature = await method4.rpc();
-      console.log("Your transaction signature", txSignature);
-  
-      // // wait for confirmation
-      const confirm4 = await program.provider.connection.confirmTransaction({
-        signature : txSignature,
-        blockhash: blockhash.blockhash,
-        lastValidBlockHeight : blockhash.lastValidBlockHeight
-      }, 'confirmed');
-      console.log("confirm3", confirm4);
-  
-      // // get transaction details
-      const txDetails4 = await program.provider.connection.getTransaction(txSignature, {
-        commitment: 'confirmed',
-      })
-      console.log(txDetails4);
+    // wait for confirmation
+    await waitForConfirmation({ connection: program.provider.connection, tx: tx2, blockhash: blockhash, getDetails: true });
+
+    console.log("====================== Execute Instruction on behalf of PDA ===================");
+    
+    const method4 = executeInstruction(inst2, signer, program);
+    // console.log((await method4.instruction()).data )
+
+    const txSignature = await method4.rpc();
+
+    // wait for confirmation
+    await waitForConfirmation({ connection: program.provider.connection, tx: txSignature, blockhash: blockhash, getDetails: true }); 
 
 
-      // 
-      const setComputeUnitLimit = anchor.web3.ComputeBudgetProgram.setComputeUnitLimit( {units : 1_400_000} )
-      
-      const method5 = await executeMultipleInstruction([inst2, inst2], signer, program);
-      console.log((await method5.instruction()).data )
-      method5.preInstructions ( [ setComputeUnitLimit] );
-      const tx5 = await method5.rpc();
-      
-      // const tx5 = await program.provider.connection.sendRawTransaction(tx5_transaction.serialize());
-
-      // // wait for confirmation
-      const confirm5 = await program.provider.connection.confirmTransaction({
-        signature : tx5,
-        blockhash: blockhash.blockhash,
-        lastValidBlockHeight : blockhash.lastValidBlockHeight
-      }, 'confirmed');
-      console.log("confirm3", confirm5);
-
-      // // get transaction details
-      const txDetails5 = await program.provider.connection.getTransaction(tx5, {
-        commitment: 'confirmed',
-      })
-      console.log(txDetails5);
-
-    } catch (error) {
-      console.log("error", error);
-      console.log("error", error.getLogs());
-      throw error
-    }
+    console.log("====================== Execute  Multiple Instruction on behalf of PDA ===================");
+    
+    // set instruction compute unit to Max
+    const setComputeUnitLimit = anchor.web3.ComputeBudgetProgram.setComputeUnitLimit( {units : 1_400_000} )
+    
+    const method5 = await executeMultipleInstruction([inst2, inst2], signer, program);
+    method5.preInstructions ( [ setComputeUnitLimit] );
+    const tx5 = await method5.rpc();
+    
+    // // wait for confirmation
+    waitForConfirmation({ connection: program.provider.connection, tx: tx5, blockhash: blockhash, getDetails: true });
   });
 
 
@@ -152,7 +94,6 @@ describe("smart", () => {
     const account = anchor.web3.PublicKey.findProgramAddressSync([ pdaPrefixSeed, walletSeed ], program.programId);
 
     // create a pda account
-    const pda = anchor.web3.Keypair.generate();
     const method = createWallet(program, signer, walletSeed);
     await method.rpc();
 
@@ -164,22 +105,14 @@ describe("smart", () => {
 
     // airdrop sol to acc and mint auth
     const blockhash = await program.provider.connection.getLatestBlockhash();
-    const tx_airdrp1 = await program.provider.connection.requestAirdrop(account[0], 1 * anchor.web3.LAMPORTS_PER_SOL);
-    const confrim1 = await program.provider.connection.confirmTransaction({
-      signature : tx_airdrp1,
-      blockhash: blockhash.blockhash,
-      lastValidBlockHeight : blockhash.lastValidBlockHeight
-    }, 'confirmed');
+    const airdripAccountTxSign = await program.provider.connection.requestAirdrop(account[0], 1 * anchor.web3.LAMPORTS_PER_SOL);
+    await waitForConfirmation({ connection: program.provider.connection, tx: airdripAccountTxSign, blockhash: blockhash, getDetails: false });
 
-
-    const tx_airdrp2 = await program.provider.connection.requestAirdrop(mintAuthority.publicKey, 1 * anchor.web3.LAMPORTS_PER_SOL);
-    const confrim2 = await program.provider.connection.confirmTransaction({
-      signature : tx_airdrp2,
-      blockhash: blockhash.blockhash,
-      lastValidBlockHeight : blockhash.lastValidBlockHeight
-    }, 'confirmed');
+    const airdropAuthorityTxSign = await program.provider.connection.requestAirdrop(mintAuthority.publicKey, 1 * anchor.web3.LAMPORTS_PER_SOL);
+    await waitForConfirmation({ connection: program.provider.connection, tx: airdropAuthorityTxSign, blockhash: blockhash, getDetails: false });
     
     // create mint token
+    console.log('==================== Create and Preparing Mint Token =====================');
     const token = await createMint(
       program.provider.connection,
       mintAuthority, // payer
@@ -188,18 +121,10 @@ describe("smart", () => {
       decimals
     );
 
-
     // derive pda token account
     // allowOwnerOffCurve: true is needed for PDAs
     const pdaTokenAccount = await getAssociatedTokenAddress(token, account[0] , true);
 
-    // const pdaTokenAccountOnChain = await createAssociatedTokenAccount(
-    //   program.provider.connection,
-    //   mintAuthority, // payer
-    //   // pdaTokenAccount, // account
-    //   token, // mint
-    //   account[0], // owner ( smart wallet (our program pda))
-    // )
     const inst = createAssociatedTokenAccountInstruction(
       mintAuthority.publicKey, // payer
       pdaTokenAccount, // account
@@ -207,28 +132,21 @@ describe("smart", () => {
       token // mint 
     )
 
-    // const method2 = executeInstruction(inst, signer, program);
-    // const pda_inst = await method2.instruction();
-
-    const transactionM = new anchor.web3.TransactionMessage({
+    // SPL tx need version 0 tx
+    const txMsg = new anchor.web3.TransactionMessage({
       payerKey: mintAuthority.publicKey,
       recentBlockhash: blockhash.blockhash,
       instructions: [inst]
     })
     
-    const vtx = new anchor.web3.VersionedTransaction(transactionM.compileToV0Message());
+    const vtx = new anchor.web3.VersionedTransaction(txMsg.compileToV0Message());
     vtx.sign([mintAuthority]);
 
     const vtx_hash = await program.provider.connection.sendTransaction(vtx);
     console.log("tx_hash", vtx_hash);
 
     // wait confirmation
-    const confirm = await program.provider.connection.confirmTransaction({
-      signature : vtx_hash,
-      blockhash: blockhash.blockhash,
-      lastValidBlockHeight : blockhash.lastValidBlockHeight
-    }, 'confirmed');
-    console.log("confirm", confirm);
+    await waitForConfirmation({ connection: program.provider.connection, tx: vtx_hash, blockhash: blockhash });
 
     // mint token to wallet
     const tx = await mintTo(
@@ -240,8 +158,7 @@ describe("smart", () => {
       1_000_000_000_000,
     )
 
-
-    
+    console.log("====================== Transfer SPL Token on behalf of PDA =====================");
     // create Transfer token instruction
     // transferChecked
     const instTrf = createTransferCheckedInstruction (
@@ -253,62 +170,38 @@ describe("smart", () => {
       decimals
     )
 
-    console.log(instTrf.keys)
-
-    // // execute inst with pda
+    // execute inst with pda
     const method2 = executeInstruction(instTrf, signer, program);
     const pda_inst = await method2.instruction();
 
 
-    console.log("keys", pda_inst.keys)
-    console.log("pda_acc", account[0])
-    // make pda is not signer so inst that can be send out
+    // make pda is not signer so inst that can be send out ( Signature is checked by pda )
     // it will by signed by the program
     pda_inst.keys.forEach(key =>  {
       if (key.pubkey.equals(account[0]) ) {
         key.isSigner = false
       }
     })
+
+    // SPL Program Address(Account) need to be added
     const tk_program = new anchor.web3.PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
     pda_inst.keys.push({pubkey: tk_program, isSigner: false, isWritable: false})
 
-    console.log("keys", pda_inst.keys)
     const setComputeUnitLimit = anchor.web3.ComputeBudgetProgram.setComputeUnitLimit( {units : 1_400_000} )
 
-    // // compile transaction
+    // compile transaction
     const pdaTransactionMessage = new anchor.web3.TransactionMessage({
       payerKey: mintAuthority.publicKey,
       recentBlockhash: blockhash.blockhash,
       instructions: [setComputeUnitLimit, pda_inst]
     });
 
-    
     const vtx2 = new anchor.web3.VersionedTransaction(pdaTransactionMessage.compileToV0Message());
+    // sign by fee payer
     vtx2.sign([mintAuthority]);
 
-    try {
-      const vtx_hash2 = await program.provider.connection.sendTransaction(vtx2);
-      console.log("tx_hash2", vtx_hash2);
-
-      // wait confirmation
-      const confirm2 = await program.provider.connection.confirmTransaction({
-        signature : vtx_hash2,
-        blockhash: blockhash.blockhash,
-        lastValidBlockHeight : blockhash.lastValidBlockHeight
-      }, 'confirmed');
-
-      console.log("confirm2", confirm2);
-
-      // get transaction details
-      const txDetails2 = await program.provider.connection.getTransaction(vtx_hash2, {
-        commitment: 'confirmed',
-        maxSupportedTransactionVersion: 1
-      })
-      console.log(txDetails2);
-    }catch (error) {
-      console.log("error", error);
-      console.log("error", error.getLogs());
-    }
-
+    const vtx_hash2 = await program.provider.connection.sendTransaction(vtx2);
+    // wait confirmation
+    await waitForConfirmation({ connection: program.provider.connection, tx: vtx_hash2, blockhash: blockhash, getDetails: true });
   })
 });

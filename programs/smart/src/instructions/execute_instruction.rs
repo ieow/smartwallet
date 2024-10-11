@@ -9,18 +9,15 @@ use crate::{
     validation::{validate, SignatureParams, ValidatorError},
 };
 
-
-
 #[derive(Accounts)]
 #[instruction( signature: SignatureParams)]
-pub struct AccountExecuteParams<'info> {
+pub struct ExecuteInstructionAccounts<'info> {
     #[account(
         seeds = [ PRESEED, signature.wallet_seed.as_ref()],
         bump,
     )]
     pub wallet_account: Account<'info, WalletType>,
 }
-
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
 pub struct MyAccountMeta {
@@ -47,7 +44,7 @@ pub struct ExecuteInstructionParams {
 }
 
 pub fn handler(
-    ctx: Context<AccountExecuteParams>,
+    ctx: Context<ExecuteInstructionAccounts>,
     signature: SignatureParams,
     instruction_data: ExecuteInstructionParams,
 ) -> Result<()> {
@@ -63,44 +60,44 @@ pub fn handler(
         validate(&instruction_data.try_to_vec()?, &signature),
         ValidatorError::InvalidSignature
     );
-    msg!("valided execute instruction on behalf of PDA");
-    msg!("Instruction data {:?}", instruction_data);
+
+    execute_instruction_on_behalf_of_pda(&ctx, &instruction_data, &signature.wallet_seed)?;
+
+    Ok(())
+}
+
+pub fn execute_instruction_on_behalf_of_pda(
+    ctx: &Context<ExecuteInstructionAccounts>,
+    instruction_data: &ExecuteInstructionParams,
+    wallet_seed: &[u8; 32],
+) -> Result<()> {
+    let wallet_account = &ctx.accounts.wallet_account;
 
     let compiled_instruction = Instruction {
         program_id: instruction_data.program_id,
-        accounts: instruction_data.keys
-                    .iter()
-                    .map(|x| AccountMeta::from(x.clone())).collect(),
-        data: instruction_data.data,
+        accounts: instruction_data
+            .keys
+            .iter()
+            .map(|x| AccountMeta::from(x.clone()))
+            .collect(),
+        data: instruction_data.data.clone(),
     };
 
-    let wallet_is_signer = instruction_data.keys.iter().find(|x| x.pubkey == wallet_account.key() && x.is_signer).is_some();
-    instruction_data.keys.iter().for_each( |x| {
-        msg!("Executing instruction instruction account {:?} is_signer {:?}", x.pubkey , x.is_signer);
-    });
-    msg!("wallet_is_signer {:?}", wallet_is_signer);
+    let wallet_is_signer = instruction_data
+        .keys
+        .iter()
+        .find(|x| x.pubkey == wallet_account.key() && x.is_signer)
+        .is_some();
+
     if wallet_is_signer {
-        let seed = [
-            PRESEED,
-            signature.wallet_seed.as_ref(),
-            &[ctx.bumps.wallet_account],
-        ];
+        let seed = [PRESEED, wallet_seed, &[ctx.bumps.wallet_account]];
 
-        ctx.remaining_accounts.iter().for_each( |x| {
-            msg!("Executing instruction remaining_accounts {:?} is_signer {:?}", x.key() , x.is_signer);
-        }); 
-
-        ctx.accounts.to_account_infos().iter().for_each( |x| {
-            msg!("Executing instruction accounts {:?} is_signer {:?}", x.key() , x.is_signer);
-        });
-
-        invoke_signed(&compiled_instruction,  &ctx.remaining_accounts, &[&seed])?;
+        invoke_signed(&compiled_instruction, &ctx.remaining_accounts, &[&seed])?;
     } else {
         // Execute the instruction on behalf of the PDA
         // TODO: check if need to add back pda account
         invoke(&compiled_instruction, ctx.remaining_accounts)?;
     }
 
-    msg!("Instruction executed successfully");
     Ok(())
 }

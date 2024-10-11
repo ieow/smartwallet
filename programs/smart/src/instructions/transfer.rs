@@ -10,7 +10,7 @@ use crate::{
 #[derive(Accounts)]
 #[instruction( signature: SignatureParams)]
 
-pub struct TransferSolAccount<'info> {
+pub struct TransferSolAccounts<'info> {
     #[account(
         mut,
         seeds = [ PRESEED,  signature.wallet_seed.as_ref()],
@@ -31,7 +31,7 @@ pub struct TransferSolParams {
 }
 
 pub fn handler(
-    ctx: Context<TransferSolAccount>,
+    ctx: Context<TransferSolAccounts>,
     signature: SignatureParams,
     data: TransferSolParams,
 ) -> Result<()> {
