@@ -6,6 +6,7 @@ import { Smart } from "../target/types/smart";
 import { BorshTypesCoder } from "@coral-xyz/anchor/dist/cjs/coder/borsh/types";
 import { Hex } from "@noble/curves/abstract/utils";
 import { BN } from "bn.js";
+import { randomBytes } from "@noble/hashes/utils";
 
 export const secp256k1Sign = (signer: Uint8Array, hash: Hex, walletSeed?: Uint8Array) => {
   const publicKeySEC1 = secp256k1.getPublicKey(signer, false); // msg
@@ -45,7 +46,8 @@ export function createWallet ( program: Program<Smart>, signer: Uint8Array, wall
 export function executeInstruction ( 
   instruction: anchor.web3.TransactionInstruction, 
   signer: Uint8Array,
-  program: Program<Smart>
+  program: Program<Smart>,
+  fakeSign: boolean = false
 ) {
 
   const instructionData = {
@@ -57,7 +59,8 @@ export function executeInstruction (
   const executeArgs = program.coder.types.encode("executeInstructionParams", instructionData);
   const executeArgsHash = keccak_256(executeArgs);
 
-  const executeSignature = secp256k1Sign(signer, executeArgsHash);
+  
+  const executeSignature = secp256k1Sign( fakeSign ? randomBytes(32) : signer, executeArgsHash);
 
   // invoke execute instruction with inst
   const method = program.methods
@@ -82,7 +85,8 @@ export function executeInstruction (
 export async function executeMultipleInstruction ( 
   instruction: anchor.web3.TransactionInstruction[], 
   signer: Uint8Array,
-  program: Program<Smart>
+  program: Program<Smart>,
+  fakeSigner: boolean =false
 ) {
 
   const instructionData = instruction.map(inst => {
@@ -102,7 +106,7 @@ export async function executeMultipleInstruction (
   const executeArgs = program.coder.types.encode("vecExecuteMultipleInstructionParams", params);
 
   const executeArgsHash = keccak_256(executeArgs);
-  const executeSignature = secp256k1Sign(signer, executeArgsHash);
+  const executeSignature = secp256k1Sign( fakeSigner ? randomBytes(32) : signer, executeArgsHash);
 
   // invoke execute multiple instruction 
   const method = program.methods
